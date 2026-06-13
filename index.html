@@ -231,7 +231,17 @@
         const app = initializeApp(firebaseConfig);
         const analytics = getAnalytics(app);
         const db = getFirestore(app);
-        const messaging = getMessaging(app);
+        
+        // CHANGED: Wrap messaging initialization in try-catch to prevent crash
+        let messaging = null;
+        let fcmInitialized = false;
+        try {
+            messaging = getMessaging(app);
+            fcmInitialized = true;
+            console.log('FCM initialized successfully');
+        } catch (error) {
+            console.warn('FCM initialization failed, continuing without push notifications:', error);
+        }
 
         // DOM elements
         const messagesContainer = document.getElementById('messagesContainer');
@@ -252,7 +262,12 @@
                 if (Notification.permission === 'default') {
                     notificationPermissionDiv.style.display = 'block';
                 } else if (Notification.permission === 'granted') {
-                    setupFCM();
+                    // CHANGED: Only call setupFCM if FCM was initialized successfully
+                    if (fcmInitialized) {
+                        setupFCM();
+                    } else {
+                        console.log('Notifications granted but FCM not available');
+                    }
                 }
             }
         }
@@ -263,7 +278,12 @@
                 const permission = await Notification.requestPermission();
                 if (permission === 'granted') {
                     notificationPermissionDiv.style.display = 'none';
-                    setupFCM();
+                    // CHANGED: Only call setupFCM if FCM was initialized successfully
+                    if (fcmInitialized) {
+                        setupFCM();
+                    } else {
+                        console.log('Notifications granted but FCM not available');
+                    }
                     console.log('Разрешение на уведомления получено');
                 }
             } catch (error) {
@@ -273,10 +293,16 @@
 
         // Настройка FCM
         async function setupFCM() {
+            // CHANGED: Added check if messaging is available
+            if (!messaging) {
+                console.warn('Cannot setup FCM: messaging not initialized');
+                return;
+            }
+            
             try {
                 // Получение токена FCM
                 const token = await getToken(messaging, {
-vapidKey: 'BM85kMfDPIAfeHcKG2kul2EfhwHhROWVs4IAf1oQtSIB-R7X-jchFgh3cWZOBOOg2Em2kJSLIZw8oyT37eAC1DA'
+                    vapidKey: 'BM85kMfDPIAfeHcKG2kul2EfhwHhROWVs4IAf1oQtSIB-R7X-jchFgh3cWZOBOOg2Em2kJSLIZw8oyT37eAC1DA'
                 });
                 
                 console.log('FCM Token:', token);
@@ -362,6 +388,10 @@ vapidKey: 'BM85kMfDPIAfeHcKG2kul2EfhwHhROWVs4IAf1oQtSIB-R7X-jchFgh3cWZOBOOg2Em2k
 
             // Auto-scroll to bottom
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }, (error) => {
+            // NEW: Added error handling for Firestore connection
+            console.error('Ошибка подключения к Firestore:', error);
+            messagesContainer.innerHTML = '<div class="loading">Ошибка загрузки сообщений. Проверьте подключение к интернету.</div>';
         });
 
         // Показ браузерного уведомления при новом сообщении
