@@ -144,24 +144,6 @@
             color: #999;
             font-size: 20px;
         }
-
-        .notification-permission {
-            background: #fff3cd;
-            padding: 15px;
-            text-align: center;
-            border-bottom: 1px solid #e0e0e0;
-        }
-
-        .notification-permission button {
-            background: #667eea;
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 16px;
-            margin-left: 10px;
-        }
     </style>
 </head>
 <body>
@@ -170,11 +152,7 @@
             💬 Глобальный Чат
         </div>
         
-        <!-- Уведомление о разрешении -->
-        <div id="notificationPermission" class="notification-permission" style="display: none;">
-            🔔 Разрешите уведомления для получения сообщений
-            <button onclick="requestNotificationPermission()">Разрешить</button>
-        </div>
+        <!-- CHANGED: Removed notification permission div -->
         
         <div class="messages-container" id="messagesContainer">
             <div class="loading">Загрузка сообщений...</div>
@@ -210,17 +188,7 @@
             orderBy, 
             serverTimestamp 
         } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-        
-        // CHANGED: Dynamic import of messaging only if browser supports it
-        let messaging = null;
-        let fcmInitialized = false;
-        let getToken = null;
-        let onMessage = null;
-        
-        // Check if browser supports Push API (FCM requirement)
-        function isPushSupported() {
-            return 'serviceWorker' in navigator && 'PushManager' in window;
-        }
+        // CHANGED: Removed all FCM imports
 
         // Firebase configuration
         const firebaseConfig = {
@@ -237,35 +205,13 @@
         const app = initializeApp(firebaseConfig);
         const analytics = getAnalytics(app);
         const db = getFirestore(app);
-        
-        // CHANGED: Only initialize FCM if browser supports it
-        async function initializeFCM() {
-            if (!isPushSupported()) {
-                console.log('Browser does not support Push API, skipping FCM');
-                return;
-            }
-            
-            try {
-                // Dynamic import to prevent errors on unsupported browsers
-                const messagingModule = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-messaging.js");
-                const getMessaging = messagingModule.getMessaging;
-                getToken = messagingModule.getToken;
-                onMessage = messagingModule.onMessage;
-                
-                messaging = getMessaging(app);
-                fcmInitialized = true;
-                console.log('FCM initialized successfully');
-            } catch (error) {
-                console.warn('FCM initialization failed, continuing without push notifications:', error);
-            }
-        }
 
         // DOM elements
         const messagesContainer = document.getElementById('messagesContainer');
         const messageInput = document.getElementById('messageInput');
         const usernameInput = document.getElementById('usernameInput');
         const sendButton = document.getElementById('sendButton');
-        const notificationPermissionDiv = document.getElementById('notificationPermission');
+        // CHANGED: Removed notificationPermissionDiv reference
 
         // Load username from localStorage
         const savedUsername = localStorage.getItem('chatUsername');
@@ -273,102 +219,11 @@
             usernameInput.value = savedUsername;
         }
 
-        // Проверка поддержки уведомлений
-        function checkNotificationSupport() {
-            if ('Notification' in window) {
-                if (Notification.permission === 'default') {
-                    notificationPermissionDiv.style.display = 'block';
-                } else if (Notification.permission === 'granted') {
-                    // CHANGED: Only call setupFCM if FCM was initialized successfully
-                    if (fcmInitialized) {
-                        setupFCM();
-                    } else {
-                        console.log('Notifications granted but FCM not available');
-                    }
-                }
-            }
-        }
-
-        // Запрос разрешения на уведомления
-        window.requestNotificationPermission = async function() {
-            try {
-                const permission = await Notification.requestPermission();
-                if (permission === 'granted') {
-                    notificationPermissionDiv.style.display = 'none';
-                    // CHANGED: Only call setupFCM if FCM was initialized successfully
-                    if (fcmInitialized) {
-                        setupFCM();
-                    } else {
-                        console.log('Notifications granted but FCM not available');
-                    }
-                    console.log('Разрешение на уведомления получено');
-                }
-            } catch (error) {
-                console.error('Ошибка при запросе разрешения:', error);
-            }
-        };
-
-        // Настройка FCM
-        async function setupFCM() {
-            // CHANGED: Added check if messaging is available
-            if (!messaging || !getToken || !onMessage) {
-                console.warn('Cannot setup FCM: messaging not initialized');
-                return;
-            }
-            
-            try {
-                // Получение токена FCM
-                const token = await getToken(messaging, {
-                    vapidKey: 'BM85kMfDPIAfeHcKG2kul2EfhwHhROWVs4IAf1oQtSIB-R7X-jchFgh3cWZOBOOg2Em2kJSLIZw8oyT37eAC1DA'
-                });
-                
-                console.log('FCM Token:', token);
-                
-                // Сохранение токена в Firestore (опционально)
-                if (token) {
-                    await saveTokenToFirestore(token);
-                }
-                
-                // Обработка сообщений в foreground
-                onMessage(messaging, (payload) => {
-                    console.log('Получено сообщение:', payload);
-                    showLocalNotification(payload);
-                });
-                
-            } catch (error) {
-                console.error('Ошибка настройки FCM:', error);
-            }
-        }
-
-        // Сохранение токена в Firestore
-        async function saveTokenToFirestore(token) {
-            try {
-                const tokensRef = collection(db, 'fcm_tokens');
-                await addDoc(tokensRef, {
-                    token: token,
-                    timestamp: serverTimestamp(),
-                    userAgent: navigator.userAgent
-                });
-            } catch (error) {
-                console.error('Ошибка сохранения токена:', error);
-            }
-        }
-
-        // Показ локального уведомления
-        function showLocalNotification(payload) {
-            if (Notification.permission === 'granted') {
-                const notification = new Notification(payload.notification?.title || 'Новое сообщение', {
-                    body: payload.notification?.body || payload.data?.text || 'У вас новое сообщение',
-                    icon: '/icon.png', // Путь к иконке
-                    badge: '/badge.png' // Путь к бейджу
-                });
-                
-                notification.onclick = () => {
-                    window.focus();
-                    notification.close();
-                };
-            }
-        }
+        // CHANGED: Removed checkNotificationSupport function
+        // CHANGED: Removed requestNotificationPermission function
+        // CHANGED: Removed setupFCM function
+        // CHANGED: Removed saveTokenToFirestore function
+        // CHANGED: Removed showLocalNotification function
 
         // Reference to messages collection
         const messagesRef = collection(db, 'messages');
@@ -376,7 +231,6 @@
 
         // Listen for real-time updates
         let isFirstLoad = true;
-        let lastMessageId = null;
         
         onSnapshot(q, (snapshot) => {
             if (isFirstLoad) {
@@ -387,19 +241,7 @@
             snapshot.docChanges().forEach((change) => {
                 if (change.type === 'added') {
                     const message = change.doc.data();
-                    const messageId = change.doc.id;
-                    
-                    // Показываем уведомление только для новых сообщений (не при первой загрузке)
-                    if (!isFirstLoad && messageId !== lastMessageId) {
-                        const currentUsername = usernameInput.value.trim();
-                        // Не показывать уведомление, если это наше собственное сообщение
-                        if (message.username !== currentUsername) {
-                            showBrowserNotification(message);
-                        }
-                    }
-                    
                     displayMessage(message);
-                    lastMessageId = messageId;
                 }
             });
 
@@ -410,22 +252,6 @@
             console.error('Ошибка подключения к Firestore:', error);
             messagesContainer.innerHTML = '<div class="loading">Ошибка загрузки сообщений. Проверьте подключение к интернету.</div>';
         });
-
-        // Показ браузерного уведомления при новом сообщении
-        function showBrowserNotification(message) {
-            if (Notification.permission === 'granted') {
-                const notification = new Notification(`💬 ${message.username}`, {
-                    body: message.text,
-                    icon: '/icon.png',
-                    tag: 'chat-message' // Чтобы не дублировать уведомления
-                });
-                
-                notification.onclick = () => {
-                    window.focus();
-                    notification.close();
-                };
-            }
-        }
 
         // Display message in chat
         function displayMessage(message) {
@@ -502,10 +328,7 @@
             }
         });
 
-        // CHANGED: Initialize FCM asynchronously and then check notifications
-        initializeFCM().then(() => {
-            checkNotificationSupport();
-        });
+        // CHANGED: Removed checkNotificationSupport call
     </script>
 </body>
 </html>
