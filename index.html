@@ -210,11 +210,17 @@
             orderBy, 
             serverTimestamp 
         } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-        import { 
-            getMessaging, 
-            getToken, 
-            onMessage 
-        } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-messaging.js";
+        
+        // CHANGED: Dynamic import of messaging only if browser supports it
+        let messaging = null;
+        let fcmInitialized = false;
+        let getToken = null;
+        let onMessage = null;
+        
+        // Check if browser supports Push API (FCM requirement)
+        function isPushSupported() {
+            return 'serviceWorker' in navigator && 'PushManager' in window;
+        }
 
         // Firebase configuration
         const firebaseConfig = {
@@ -232,15 +238,26 @@
         const analytics = getAnalytics(app);
         const db = getFirestore(app);
         
-        // CHANGED: Wrap messaging initialization in try-catch to prevent crash
-        let messaging = null;
-        let fcmInitialized = false;
-        try {
-            messaging = getMessaging(app);
-            fcmInitialized = true;
-            console.log('FCM initialized successfully');
-        } catch (error) {
-            console.warn('FCM initialization failed, continuing without push notifications:', error);
+        // CHANGED: Only initialize FCM if browser supports it
+        async function initializeFCM() {
+            if (!isPushSupported()) {
+                console.log('Browser does not support Push API, skipping FCM');
+                return;
+            }
+            
+            try {
+                // Dynamic import to prevent errors on unsupported browsers
+                const messagingModule = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-messaging.js");
+                const getMessaging = messagingModule.getMessaging;
+                getToken = messagingModule.getToken;
+                onMessage = messagingModule.onMessage;
+                
+                messaging = getMessaging(app);
+                fcmInitialized = true;
+                console.log('FCM initialized successfully');
+            } catch (error) {
+                console.warn('FCM initialization failed, continuing without push notifications:', error);
+            }
         }
 
         // DOM elements
@@ -294,7 +311,7 @@
         // Настройка FCM
         async function setupFCM() {
             // CHANGED: Added check if messaging is available
-            if (!messaging) {
+            if (!messaging || !getToken || !onMessage) {
                 console.warn('Cannot setup FCM: messaging not initialized');
                 return;
             }
@@ -485,8 +502,10 @@
             }
         });
 
-        // Проверяем поддержку уведомлений при загрузке
-        checkNotificationSupport();
+        // CHANGED: Initialize FCM asynchronously and then check notifications
+        initializeFCM().then(() => {
+            checkNotificationSupport();
+        });
     </script>
 </body>
 </html>
