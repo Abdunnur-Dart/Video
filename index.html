@@ -88,6 +88,13 @@
             line-height: 1.6;
         }
 
+        /* NEW - Стиль для сообщений других пользователей */
+        .message.other-user .message-text {
+            background: linear-gradient(135deg, #667eea 0%, #f093fb 100%);
+            color: white;
+            box-shadow: 0 2px 5px rgba(102, 126, 234, 0.3);
+        }
+
         .input-container {
             display: flex;
             padding: 20px;
@@ -289,7 +296,7 @@
                 type="text" 
                 id="messageInput" 
                 placeholder="Введите сообщение..." 
-                maxlength="500"
+                maxlength="500000"
             >
             <button id="sendButton">Отправить</button>
         </div>
@@ -354,6 +361,11 @@
         const messagesRef = collection(db, 'messages');
         const q = query(messagesRef, orderBy('timestamp', 'asc'));
 
+        // Get current username for distinguishing own messages
+        function getCurrentUsername() {
+            return usernameInput.value.trim();
+        }
+
         // Listen for real-time updates
         let isFirstLoad = true;
         
@@ -385,6 +397,12 @@
             const timestamp = message.timestamp ? 
                 new Date(message.timestamp.toDate()).toLocaleString('ru-RU') : 
                 '...';
+
+            // NEW - Определяем, является ли сообщение от другого пользователя
+            const currentUsername = getCurrentUsername();
+            if (currentUsername && message.username !== currentUsername) {
+                messageDiv.classList.add('other-user');
+            }
 
             messageDiv.innerHTML = `
                 <div class="message-header">
@@ -452,13 +470,13 @@
             }
         });
 
-        // NEW - Typing indicator functionality
+        // NEW - Typing indicator functionality with actual text
         const typingRef = collection(db, 'typing');
         let typingTimeout = null;
         let currentTypingUsers = new Map();
 
-        // Update typing status in Firestore
-        async function updateTypingStatus(isTyping) {
+        // Update typing status in Firestore with actual text
+        async function updateTypingStatus(isTyping, typedText = '') {
             const username = usernameInput.value.trim();
             if (!username) return;
 
@@ -466,11 +484,12 @@
 
             try {
                 if (isTyping) {
-                    // CHANGED - используем Date.now() вместо serverTimestamp() для избежания проблем с правами
+                    // CHANGED - сохраняем текст, который печатает пользователь
                     await setDoc(userTypingRef, {
                         username: username,
                         userId: userId,
-                        timestamp: Date.now() // CHANGED
+                        timestamp: Date.now(),
+                        typingText: typedText.substring(0, 50) // Ограничиваем длину текста
                     });
                 } else {
                     await deleteDoc(userTypingRef);
@@ -491,7 +510,10 @@
                 const data = docSnapshot.data();
                 // NEW - фильтруем только активных пользователей (печатали последние 3 секунды)
                 if (data.userId !== userId && data.username && data.timestamp && (now - data.timestamp) < 3000) {
-                    currentTypingUsers.set(data.userId, data.username);
+                    currentTypingUsers.set(data.userId, {
+                        username: data.username,
+                        typingText: data.typingText || ''
+                    });
                 }
             });
 
@@ -510,11 +532,19 @@
                 return;
             }
 
+            // CHANGED - показываем конкретный текст, который печатает пользователь
             let text = '';
             if (typingUsers.length === 1) {
-                text = `${typingUsers[0]} печатает`;
+                const user = typingUsers[0];
+                if (user.typingText) {
+                    text = `${user.username} пишет: "${user.typingText}"`;
+                } else {
+                    text = `${user.username} печатает`;
+                }
             } else if (typingUsers.length === 2) {
-                text = `${typingUsers[0]} и ${typingUsers[1]} печатают`;
+                const user1 = typingUsers[0];
+                const user2 = typingUsers[1];
+                text = `${user1.username} и ${user2.username} печатают`;
             } else {
                 text = `${typingUsers.length} человек печатают`;
             }
@@ -525,7 +555,8 @@
 
         // Handle input events for typing indicator
         messageInput.addEventListener('input', () => {
-            updateTypingStatus(true);
+            const currentText = messageInput.value;
+            updateTypingStatus(true, currentText);
             
             // Clear existing timeout
             if (typingTimeout) {
