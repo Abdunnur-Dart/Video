@@ -101,7 +101,7 @@
             border: 2px solid #e0e0e0;
             border-radius: 8px;
             margin-right: 10px;
-            font-size: 18px; // CHANGED - был 18px, оставляем для десктопа
+            font-size: 18px;
         }
 
         #messageInput {
@@ -110,7 +110,7 @@
             border: 2px solid #e0e0e0;
             border-radius: 8px;
             margin-right: 10px;
-            font-size: 18px; // CHANGED - был 18px, оставляем для десктопа
+            font-size: 18px;
         }
 
         #usernameInput:focus,
@@ -466,16 +466,18 @@
 
             try {
                 if (isTyping) {
+                    // CHANGED - используем Date.now() вместо serverTimestamp() для избежания проблем с правами
                     await setDoc(userTypingRef, {
                         username: username,
                         userId: userId,
-                        timestamp: serverTimestamp()
+                        timestamp: Date.now() // CHANGED
                     });
                 } else {
                     await deleteDoc(userTypingRef);
                 }
             } catch (error) {
-                console.error('Error updating typing status:', error);
+                // NEW - тихая обработка ошибок чтобы не ломать чат если нет прав на typing
+                console.warn('Typing indicator unavailable:', error.message);
             }
         }
 
@@ -483,14 +485,20 @@
         onSnapshot(query(typingRef), (snapshot) => {
             currentTypingUsers.clear();
             
-            snapshot.forEach((doc) => {
-                const data = doc.data();
-                if (data.userId !== userId && data.username) {
+            const now = Date.now();
+            
+            snapshot.forEach((docSnapshot) => { // CHANGED - переименовали параметр чтобы не конфликтовал с doc из импорта
+                const data = docSnapshot.data();
+                // NEW - фильтруем только активных пользователей (печатали последние 3 секунды)
+                if (data.userId !== userId && data.username && data.timestamp && (now - data.timestamp) < 3000) {
                     currentTypingUsers.set(data.userId, data.username);
                 }
             });
 
             updateTypingDisplay();
+        }, (error) => {
+            // NEW - тихая обработка ошибок listener
+            console.warn('Typing listener error:', error.message);
         });
 
         // Update typing display
